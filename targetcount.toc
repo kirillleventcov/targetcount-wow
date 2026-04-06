@@ -1,0 +1,11 @@
+## Interface: 120000, 120001, 120005
+## Title: TargetCount
+## Notes: Tracks how often you select targets (with anti-farm dedupe) and shows top targets in a table.
+## Author: targetcount
+## Version: 2.0.0
+## IconTexture: Interface\Icons\INV_Misc_Target_01
+## SavedVariables: TargetCountDB
+
+Core.lua
+UI.lua
+MinimapButton.lua
