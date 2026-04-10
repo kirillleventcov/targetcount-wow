@@ -514,10 +514,10 @@ footer:SetJustifyH("CENTER")
 ------------------------------------------------------------------------
 -- Data building
 ------------------------------------------------------------------------
-local function shouldInclude(guid, entry)
+local function shouldInclude(key, entry)
     local count = entry.count
     if sessionMode and activeTab == "targets" then
-        count = TargetCount_SessionCount(guid)
+        count = TargetCount_SessionCount(key)
         if count == 0 then return false, 0 end
     end
     if searchText ~= "" then
@@ -534,10 +534,10 @@ buildList = function()
     local p = TargetCount_GetProfile()
     local src = (activeTab == "party") and p.partyTargets or p.targets
     local list = {}
-    for guid, entry in pairs(src) do
-        local ok, cnt = shouldInclude(guid, entry)
+    for key, entry in pairs(src) do
+        local ok, cnt = shouldInclude(key, entry)
         if ok then
-            list[#list + 1] = { guid = guid, entry = entry, sortCount = cnt }
+            list[#list + 1] = { key = key, entry = entry, sortCount = cnt }
         end
     end
     table.sort(list, function(a, b)
@@ -603,7 +603,7 @@ onRowEnter = function(self)
                 DIM[1], DIM[2], DIM[3], DIM[1], DIM[2], DIM[3])
         end
 
-        local sc = TargetCount_SessionCount(self.data.guid)
+        local sc = TargetCount_SessionCount(self.data.key)
         if sc > 0 then
             GameTooltip:AddDoubleLine("This session", sc,
                 ACCENT[1], ACCENT[2], ACCENT[3], ACCENT[1], ACCENT[2], ACCENT[3])

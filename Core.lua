@@ -23,6 +23,74 @@ local function hourKey(t)
     return tostring(math.floor((t or time()) / 3600))
 end
 
+local function mergeTargetsByName(targets)
+    local merged = {}
+    for _, e in pairs(targets) do
+        local n = e.name or "???"
+        local m = merged[n]
+        if not m then
+            m = {
+                name = n, count = 0,
+                byKind = { friendly = 0, hostile = 0, neutral = 0, mixed = 0, unknown = 0 },
+                firstSeen = e.firstSeen, lastSeen = e.lastSeen,
+                lastKind = e.lastKind, isPlayer = e.isPlayer,
+                class = e.class, classLocalized = e.classLocalized,
+                creatureType = e.creatureType,
+                zones = {}, totHistory = {}, timeline = {},
+            }
+            merged[n] = m
+        end
+        m.count = m.count + (e.count or 0)
+        if e.firstSeen and (not m.firstSeen or e.firstSeen < m.firstSeen) then
+            m.firstSeen = e.firstSeen
+        end
+        if e.lastSeen and (not m.lastSeen or e.lastSeen > m.lastSeen) then
+            m.lastSeen = e.lastSeen
+            m.lastKind = e.lastKind
+            if e.isPlayer then m.isPlayer = true; m.class = e.class; m.classLocalized = e.classLocalized end
+            if e.creatureType then m.creatureType = e.creatureType end
+        end
+        if e.byKind then
+            for k, v in pairs(e.byKind) do m.byKind[k] = (m.byKind[k] or 0) + v end
+        end
+        if e.zones then
+            for z, c in pairs(e.zones) do m.zones[z] = (m.zones[z] or 0) + c end
+        end
+        if e.timeline then
+            for hk, c in pairs(e.timeline) do m.timeline[hk] = (m.timeline[hk] or 0) + c end
+        end
+        if e.totHistory then
+            for _, th in pairs(e.totHistory) do
+                local tn = th.name or "???"
+                local ex = m.totHistory[tn]
+                if ex then ex.count = ex.count + (th.count or 0)
+                else m.totHistory[tn] = { name = tn, count = th.count or 0 } end
+            end
+        end
+    end
+    return merged
+end
+
+local function mergePartyByName(partyTargets)
+    local merged = {}
+    for _, e in pairs(partyTargets) do
+        local n = e.name or "???"
+        local m = merged[n]
+        if not m then
+            m = { name = n, count = 0, trackedBy = {}, lastSeen = e.lastSeen,
+                  isPlayer = e.isPlayer, class = e.class }
+            merged[n] = m
+        end
+        m.count = m.count + (e.count or 0)
+        if e.lastSeen and (not m.lastSeen or e.lastSeen > m.lastSeen) then m.lastSeen = e.lastSeen end
+        if e.isPlayer then m.isPlayer = true; m.class = e.class or m.class end
+        if e.trackedBy then
+            for nm, c in pairs(e.trackedBy) do m.trackedBy[nm] = (m.trackedBy[nm] or 0) + c end
+        end
+    end
+    return merged
+end
+
 local function ensureDB()
     db = TargetCountDB
     if not db.version or db.version < 2 then
@@ -31,6 +99,14 @@ local function ensureDB()
             db.targets = nil
         end
         db.version = 2
+    end
+    if db.version < 3 then
+        db.profiles = db.profiles or {}
+        for _, prof in pairs(db.profiles) do
+            prof.targets = mergeTargetsByName(prof.targets or {})
+            prof.partyTargets = mergePartyByName(prof.partyTargets or {})
+        end
+        db.version = 3
     end
     db.activeProfile = db.activeProfile or "Default"
     db.profiles = db.profiles or {}
@@ -63,8 +139,7 @@ end
 
 local function recordTarget(unit)
     if not UnitExists(unit) then return end
-    local guid = UnitGUID(unit)
-    if not guid then return end
+    if not UnitGUID(unit) then return end
 
     local name, realm = UnitName(unit)
     name = name or "???"
@@ -82,17 +157,16 @@ local function recordTarget(unit)
     end
 
     local tbl = activeProfile().targets
-    local e = tbl[guid]
+    local e = tbl[name]
     if not e then
         e = {
             name = name, count = 0,
             byKind = { friendly = 0, hostile = 0, neutral = 0, mixed = 0, unknown = 0 },
             firstSeen = now, zones = {}, totHistory = {}, timeline = {},
         }
-        tbl[guid] = e
+        tbl[name] = e
     end
 
-    e.name     = name
     e.count    = e.count + 1
     e.lastSeen = now
     e.lastKind = kind
@@ -115,20 +189,18 @@ local function recordTarget(unit)
     local hk = hourKey(now)
     e.timeline[hk] = (e.timeline[hk] or 0) + 1
 
-    sessionCounts[guid] = (sessionCounts[guid] or 0) + 1
+    sessionCounts[name] = (sessionCounts[name] or 0) + 1
 
     if UnitExists("targettarget") then
-        local tGuid = UnitGUID("targettarget")
         local tName = UnitName("targettarget")
-        if tGuid and tName then
+        if tName then
             e.totHistory = e.totHistory or {}
-            local th = e.totHistory[tGuid]
+            local th = e.totHistory[tName]
             if not th then
                 th = { name = tName, count = 0 }
-                e.totHistory[tGuid] = th
+                e.totHistory[tName] = th
             end
             th.count = th.count + 1
-            th.name  = tName
         end
     end
 
@@ -184,16 +256,15 @@ local function recordPartyTarget(pu)
     if tr and tr ~= "" then tn = tn .. "-" .. tr end
 
     local pt = activeProfile().partyTargets
-    if not pt[tg] then
-        pt[tg] = { name = tn, count = 0, trackedBy = {}, lastSeen = now }
+    if not pt[tn] then
+        pt[tn] = { name = tn, count = 0, trackedBy = {}, lastSeen = now }
         if UnitIsPlayer(tu) then
             local _, ce = UnitClass(tu)
-            pt[tg].class = ce
-            pt[tg].isPlayer = true
+            pt[tn].class = ce
+            pt[tn].isPlayer = true
         end
     end
-    local e = pt[tg]
-    e.name = tn
+    local e = pt[tn]
     e.count = e.count + 1
     e.lastSeen = now
     e.trackedBy = e.trackedBy or {}
